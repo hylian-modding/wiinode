@@ -1,12 +1,12 @@
 import * as HID from "node-hid";
 
 export class Remote {
-	private hid: HID.HID;
+	private hid: HID.HID | undefined;
 	private listeners: { [button: string]: ((pressed: boolean) => void)[] } = {};
 	private ledRumbleByte: number = 0;
 
 	public devicePath: string;
-	public player: number;
+	public player!: number;
 
 	public buttonA: boolean = false;
 	public buttonB: boolean = false;
@@ -16,11 +16,17 @@ export class Remote {
 	public buttonPlus: boolean = false;
 	public buttonMinus: boolean = false;
 
+	public buttonZ: boolean = false;
+	public buttonC: boolean = false;
+
 	public padLeft: boolean = false;
 	public padRight: boolean = false;
 	public padUp: boolean = false;
 	public padDown: boolean = false;
 
+	stickX: number = 0;
+	stickY: number = 0;
+	
 	public accelerateX: number = 0;
 	public accelerateY: number = 0;
 	public accelerateZ: number = 0;
@@ -28,10 +34,16 @@ export class Remote {
 	public irx: number[] = [1023, 1023, 1023, 1023];
 	public iry: number[] = [1023, 1023, 1023, 1023];
 
+	public rawData!: Buffer;
+
 	constructor(devicePath: string) {
 		this.devicePath = devicePath;
 		this.hid = new HID.HID(devicePath);
+
+		//this.hid.write([0x13, 0x04]);
+		//this.hid.write([0x1a, 0x04]);
 		this.hid.write([0x12, 0x00, 0x37]);
+
 		this.hid.on("data", data => this.processData(data));
 	}
 
@@ -81,6 +93,7 @@ export class Remote {
 
 		// Buttons
 
+		this.rawData = Buffer.from(data);
 		const b1: number = data[1];
 		const b2: number = data[2];
 
@@ -131,11 +144,30 @@ export class Remote {
 		if (this.padDown !== padDown) this.notifyListeners("down", padDown);
 		this.padDown = padDown;
 
+		// Nunchuk Buttons
+
+		const buttonZ: boolean = !!(data[21] & 0x1);
+		if (this.buttonZ !== buttonZ) this.notifyListeners("z", buttonZ);
+		this.buttonZ = buttonZ;
+
+		const buttonC: boolean = !(data[21] & 0x2);
+		if (this.buttonC !== buttonC) this.notifyListeners("c", buttonC);
+		this.buttonC = buttonC;
+		
+		// Nunchuk Stick
+
+		this.stickX = data[16];
+		this.stickY = data[17];
+
 		// Accelerates
 
 		this.accelerateX = ((data[3] - 0x80) << 2) + ((b1 & 0x60) >> 5);
 		this.accelerateY = ((data[4] - 0x80) << 2) + ((b2 & 0x20) >> 4);
 		this.accelerateZ = ((data[5] - 0x80) << 2) + ((b2 & 0x40) >> 5);
+
+		
+
+
 
 		// IR Camera
 
@@ -155,7 +187,9 @@ export class Remote {
 				this.iry[i] < 0 ||
 				this.iry[i] >= 1023
 			) {
+				//@ts-ignore
 				this.irx[i] = undefined;
+				//@ts-ignore
 				this.iry[i] = undefined;
 			}
 		}
@@ -169,12 +203,12 @@ export class Remote {
 
 		if (msecs <= 0) {
 			this.ledRumbleByte &= 0xfe;
-			this.hid.write([0x11, this.ledRumbleByte]);
+			this.hid!.write([0x11, this.ledRumbleByte]);
 			return;
 		}
 
 		this.ledRumbleByte |= 0x01;
-		this.hid.write([0x11, this.ledRumbleByte]);
+		this.hid!.write([0x11, this.ledRumbleByte]);
 
 		setTimeout(() => {
 			this.ledRumbleByte &= 0xfe;
@@ -249,13 +283,13 @@ export function scanRemotes(assignPlayers?: boolean): ScanResult {
 
 	const newRemotesByPath: { [path: string]: Remote } = {};
 	devices.forEach(device => {
-		let remote = remotes[device.path];
+		let remote = remotes[device.path!];
 		if (remote === undefined) {
-			remote = new Remote(device.path);
+			remote = new Remote(device.path!);
 			result.appeared.push(remote);
 		}
 
-		newRemotesByPath[device.path] = remote;
+		newRemotesByPath[device.path!] = remote;
 		result.all.push(remote);
 	});
 
